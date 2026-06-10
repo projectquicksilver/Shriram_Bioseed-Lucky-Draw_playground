@@ -256,6 +256,7 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:'Nunito',sans-serif
   </div>
 </div>
 
+<script src="audio.js"></script>
 <script>
 /* ══ PRIZE CONFIG ══ */
 const GH='https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw/main/';
@@ -285,6 +286,7 @@ document.getElementById('modal-title').textContent=`🏆 ${prize.rank} — Winne
 
 /* ══ CARD → WHEEL ══ */
 document.getElementById('card-wrap').addEventListener('click',function(){
+  if(window.LuckyAudio)LuckyAudio.whoosh();
   this.style.display='none';
   document.getElementById('wheel-zone').classList.add('active');
   document.getElementById('div-label').textContent='✦ Tap Wheel to Spin ✦';
@@ -405,10 +407,13 @@ function spinWheel(){
   const cv=document.getElementById('wheel-canvas');
   const total=(Math.PI*2)*(6+Math.random()*5);
   const dur=4800,t0=performance.now(),a0=wheelAngle;
+  const SEGARC=(Math.PI*2)/NS;let lastSeg=Math.floor(a0/SEGARC);
   function ease(t){return 1-Math.pow(1-t,4);}
   function frame(now){
     const el=Math.min(now-t0,dur),t=el/dur;
     wheelAngle=a0+total*ease(t);
+    const seg=Math.floor(wheelAngle/SEGARC);
+    if(seg!==lastSeg){lastSeg=seg;if(window.LuckyAudio)LuckyAudio.tick();}
     drawWheel(cv,wheelAngle);
     if(el<dur)requestAnimationFrame(frame);
     else{spinning=false;onEnd();}
@@ -417,6 +422,7 @@ function spinWheel(){
 }
 
 function onEnd(){
+  if(window.LuckyAudio)LuckyAudio.ding();
   /* Simple clean completion — just update label and show reveal button after short delay */
   document.getElementById('wheel-label').textContent='🎉 SPIN COMPLETE!';
   setTimeout(()=>{
@@ -435,6 +441,7 @@ let allWinners=[],currentPage=1;
 const PAGE_SIZE=prize.pageSize;
 
 async function openModal(){
+  if(window.LuckyAudio)LuckyAudio.fanfare();
   try{
     const res=await fetch(GH+prize.csv);
     if(!res.ok)throw new Error();
@@ -444,9 +451,13 @@ async function openModal(){
   }
   currentPage=1;render();
   document.getElementById('modal-overlay').classList.add('open');
+  if(window.LuckyAudio){LuckyAudio.duck(true);setTimeout(()=>LuckyAudio.celebrate(),350);}
 }
 
-function closeModal(){document.getElementById('modal-overlay').classList.remove('open');}
+function closeModal(){
+  document.getElementById('modal-overlay').classList.remove('open');
+  if(window.LuckyAudio)LuckyAudio.duck(false);
+}
 
 function parseCSV(txt){
   return txt.trim().split('\n').slice(1).map(l=>{
@@ -512,7 +523,9 @@ function render(){
 
 function changePage(d){
   const tp=Math.ceil(allWinners.length/PAGE_SIZE)||1;
-  currentPage=Math.max(1,Math.min(tp,currentPage+d));
+  const np=Math.max(1,Math.min(tp,currentPage+d));
+  if(np!==currentPage&&window.LuckyAudio)LuckyAudio.page();
+  currentPage=np;
   render();
 }
 
