@@ -12,14 +12,11 @@ window.LuckyAudio = (function () {
   'use strict';
 
   /* ── CONFIG ── */
-  /* The site tries these locations in order until one loads.
-     #1 is "bg_music.mp3 sitting in the SAME folder as the website"
-     — that's the recommended setup and survives repo renames. */
+  /* The site tries these locations in order until one loads. */
   var BGM_CANDIDATES = [
-    'bg_music.mp3',
-    'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw_playground/main/bg_music.mp3',
     'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw/main/bg_music.mp3',
-    'BG_Music.mp3', 'bgmusic.mp3', 'bg-music.mp3', 'background_music.mp3', 'music.mp3'
+    'bg_music.mp3',
+    'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw_playground/main/bg_music.mp3'
   ];
   var BGM_MAX = 0.45;            // background bed stays quiet under your voice
   var DUCK    = 0.30;            // music drops to 30% while winners are shown
@@ -193,6 +190,7 @@ window.LuckyAudio = (function () {
 
   /* ══ APPLAUSE: real recording (applause.mp3) with synth fallback ══ */
   var APPLAUSE_CANDIDATES = [
+    'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw/main/applause.mp3',
     'applause.mp3',
     'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw_playground/main/applause.mp3'
   ];
