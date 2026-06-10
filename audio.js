@@ -12,13 +12,14 @@ window.LuckyAudio = (function () {
   'use strict';
 
   /* ── CONFIG ── */
-  var GH_BASE = 'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw/main/';
-  /* The site tries these filenames in order until one loads.
-     The file must be in the REPO ROOT on the main branch —
-     GitHub filenames are CASE-SENSITIVE. */
+  /* The site tries these locations in order until one loads.
+     #1 is "bg_music.mp3 sitting in the SAME folder as the website"
+     — that's the recommended setup and survives repo renames. */
   var BGM_CANDIDATES = [
-    'bg_music.mp3', 'BG_Music.mp3', 'bg_music.MP3', 'BG_MUSIC.mp3',
-    'bgmusic.mp3', 'bg-music.mp3', 'background_music.mp3', 'music.mp3'
+    'bg_music.mp3',
+    'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw_playground/main/bg_music.mp3',
+    'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw/main/bg_music.mp3',
+    'BG_Music.mp3', 'bgmusic.mp3', 'bg-music.mp3', 'background_music.mp3', 'music.mp3'
   ];
   var BGM_MAX = 0.45;            // background bed stays quiet under your voice
   var DUCK    = 0.30;            // music drops to 30% while winners are shown
@@ -44,6 +45,7 @@ window.LuckyAudio = (function () {
       sfxGain = ctx.createGain();
       sfxGain.gain.value = vol;
       sfxGain.connect(ctx.destination);
+      if (typeof decodeApplause === 'function') decodeApplause();
     }
     if (ctx.state === 'suspended') ctx.resume();
     return ctx;
@@ -58,14 +60,13 @@ window.LuckyAudio = (function () {
   var bgmIdx = 0;
   function loadNextBgm() {
     if (bgmIdx >= BGM_CANDIDATES.length) {
-      console.warn('[LuckyAudio] No background music file found in the GitHub repo. ' +
-        'Upload your track to the repo ROOT (main branch) named exactly "bg_music.mp3". ' +
+      console.warn('[LuckyAudio] No background music file found. ' +
+        'Put your track named exactly "bg_music.mp3" in the SAME folder as index.html. ' +
         'Tried: ' + BGM_CANDIDATES.join(', ') + '. Using built-in fallback music for now.');
       useFallbackMusic();
       return;
     }
-    var name = BGM_CANDIDATES[bgmIdx++];
-    bgm.src = GH_BASE + name;
+    bgm.src = BGM_CANDIDATES[bgmIdx++];
     bgm.load();
   }
   bgm.addEventListener('error', loadNextBgm);
@@ -190,7 +191,32 @@ window.LuckyAudio = (function () {
     src.start(t); src.stop(t + dur + 0.05);
   }
 
-  /* Crowd applause: dozens of tiny clap bursts rendered into one buffer */
+  /* ══ APPLAUSE: real recording (applause.mp3) with synth fallback ══ */
+  var APPLAUSE_CANDIDATES = [
+    'applause.mp3',
+    'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw_playground/main/applause.mp3'
+  ];
+  var applauseFileBuf = null, applauseRaw = null;
+  (function fetchApplause(i) {
+    if (i >= APPLAUSE_CANDIDATES.length) {
+      console.warn('[LuckyAudio] applause.mp3 not found next to the website — using synthetic claps. ' +
+        'Upload applause.mp3 to the same folder as index.html for real claps.');
+      return;
+    }
+    fetch(APPLAUSE_CANDIDATES[i])
+      .then(function (r) { if (!r.ok) throw 0; return r.arrayBuffer(); })
+      .then(function (ab) { applauseRaw = ab; if (ctx) decodeApplause(); })
+      .catch(function () { fetchApplause(i + 1); });
+  })(0);
+  function decodeApplause() {
+    if (!applauseRaw || applauseFileBuf) return;
+    ctx.decodeAudioData(applauseRaw.slice(0), function (b) {
+      applauseFileBuf = b;
+      console.log('[LuckyAudio] Real applause recording loaded.');
+    }, function () {});
+  }
+
+  /* Synthetic fallback: dozens of tiny clap bursts rendered into one buffer */
   var applauseBuf = null;
   function buildApplause(c) {
     var dur = 3.2, sr = c.sampleRate, len = (sr * dur) | 0;
@@ -214,12 +240,22 @@ window.LuckyAudio = (function () {
   }
   function playApplause(level) {
     var c = audioCtx(); if (!c || vol <= 0) return;
+    var g = c.createGain();
+    if (applauseFileBuf) {
+      /* real recording */
+      var src = c.createBufferSource(); src.buffer = applauseFileBuf;
+      g.gain.value = (level || 0.55) * 1.5;
+      src.connect(g); g.connect(sfxGain);
+      src.start();
+      return;
+    }
+    /* synthetic fallback */
     if (!applauseBuf) applauseBuf = buildApplause(c);
-    var src = c.createBufferSource(); src.buffer = applauseBuf;
+    var s2 = c.createBufferSource(); s2.buffer = applauseBuf;
     var f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1500; f.Q.value = 0.5;
-    var g = c.createGain(); g.gain.value = level || 0.55;
-    src.connect(f); f.connect(g); g.connect(sfxGain);
-    src.start();
+    g.gain.value = level || 0.55;
+    s2.connect(f); f.connect(g); g.connect(sfxGain);
+    s2.start();
   }
 
   var api = {
