@@ -12,7 +12,14 @@ window.LuckyAudio = (function () {
   'use strict';
 
   /* ── CONFIG ── */
-  var BGM_URL = 'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw/main/bg_music.mp3';
+  var GH_BASE = 'https://raw.githubusercontent.com/projectquicksilver/Shriram_Bioseed-Lucky-Draw/main/';
+  /* The site tries these filenames in order until one loads.
+     The file must be in the REPO ROOT on the main branch —
+     GitHub filenames are CASE-SENSITIVE. */
+  var BGM_CANDIDATES = [
+    'bg_music.mp3', 'BG_Music.mp3', 'bg_music.MP3', 'BG_MUSIC.mp3',
+    'bgmusic.mp3', 'bg-music.mp3', 'background_music.mp3', 'music.mp3'
+  ];
   var BGM_MAX = 0.45;            // background bed stays quiet under your voice
   var DUCK    = 0.30;            // music drops to 30% while winners are shown
   var FADE_IN = 1400;            // ms
@@ -44,12 +51,29 @@ window.LuckyAudio = (function () {
 
   /* ── BACKGROUND MUSIC ELEMENT ── */
   var bgm = new Audio();
-  bgm.src = BGM_URL;
   bgm.loop = true;
   bgm.preload = 'auto';
   bgm.volume = 0;
 
-  bgm.addEventListener('error', function () { useFallbackMusic(); });
+  var bgmIdx = 0;
+  function loadNextBgm() {
+    if (bgmIdx >= BGM_CANDIDATES.length) {
+      console.warn('[LuckyAudio] No background music file found in the GitHub repo. ' +
+        'Upload your track to the repo ROOT (main branch) named exactly "bg_music.mp3". ' +
+        'Tried: ' + BGM_CANDIDATES.join(', ') + '. Using built-in fallback music for now.');
+      useFallbackMusic();
+      return;
+    }
+    var name = BGM_CANDIDATES[bgmIdx++];
+    bgm.src = GH_BASE + name;
+    bgm.load();
+  }
+  bgm.addEventListener('error', loadNextBgm);
+  bgm.addEventListener('canplaythrough', function () {
+    console.log('[LuckyAudio] Background music loaded: ' + bgm.src.split('/').pop());
+    if (unlocked && !paused && bgm.paused) startMusic();
+  }, { once: true });
+  loadNextBgm();
 
   /* Smooth volume targeting (one rAF loop handles fades + ducking) */
   var fadeStart = 0, fadeFrom = 0, fading = false;
@@ -74,19 +98,24 @@ window.LuckyAudio = (function () {
   })(0);
 
   /* ── START / RESUME ── */
+  var unlocked = false;
   function startMusic() {
-    if (started || paused) return;
-    if (usingFallback) { startFallback(); started = true; fadeTo(FADE_IN); updateBtn(); return; }
-    try { if (resumeT > 1 && isFinite(bgm.duration) ? resumeT < bgm.duration : resumeT > 1) bgm.currentTime = resumeT; } catch (e) {}
+    if (paused) return;
+    if (usingFallback) {
+      if (unlocked) { startFallback(); started = true; fadeTo(FADE_IN); updateBtn(); }
+      return;
+    }
+    if (started && !bgm.paused) return;
+    try { if (resumeT > 1 && (!isFinite(bgm.duration) || resumeT < bgm.duration)) bgm.currentTime = resumeT; } catch (e) {}
     var p = bgm.play();
     if (p && p.then) {
       p.then(function () { started = true; fadeTo(FADE_IN); updateBtn(); })
-       .catch(function () { /* autoplay blocked – will retry on first click */ });
+       .catch(function () { /* autoplay blocked or src still loading – retried on next click / canplaythrough */ });
     }
   }
 
   /* Try immediately (works if browser allows), else on first interaction */
-  function unlock() { audioCtx(); startMusic(); }
+  function unlock() { unlocked = true; audioCtx(); startMusic(); }
   document.addEventListener('pointerdown', unlock, { capture: true });
   document.addEventListener('keydown', unlock, { capture: true });
   startMusic();
@@ -103,7 +132,7 @@ window.LuckyAudio = (function () {
   var fbGain = null, fbTimer = null, fbGainVal = 0;
   function useFallbackMusic() {
     usingFallback = true;
-    if (started) { startFallback(); fadeTo(FADE_IN); }
+    if (unlocked && !paused) { startFallback(); started = true; fadeTo(FADE_IN); updateBtn(); }
   }
   function startFallback() {
     var c = audioCtx(); if (!c || fbTimer) return;
@@ -161,6 +190,38 @@ window.LuckyAudio = (function () {
     src.start(t); src.stop(t + dur + 0.05);
   }
 
+  /* Crowd applause: dozens of tiny clap bursts rendered into one buffer */
+  var applauseBuf = null;
+  function buildApplause(c) {
+    var dur = 3.2, sr = c.sampleRate, len = (sr * dur) | 0;
+    var buf = c.createBuffer(1, len, sr), d = buf.getChannelData(0);
+    var claps = 170;
+    for (var k = 0; k < claps; k++) {
+      /* denser at the start, thinning toward the end */
+      var start = Math.pow(Math.random(), 1.6) * (dur - 0.15);
+      var s0 = (start * sr) | 0;
+      var cl = (sr * (0.012 + Math.random() * 0.018)) | 0;   // each clap 12–30ms
+      var amp = 0.25 + Math.random() * 0.5;
+      for (var i = 0; i < cl && s0 + i < len; i++) {
+        var env = Math.exp(-i / (cl * 0.28));
+        d[s0 + i] += (Math.random() * 2 - 1) * amp * env;
+      }
+    }
+    /* gentle overall fade-out */
+    var fadeS = (sr * 0.9) | 0;
+    for (var j = 0; j < fadeS; j++) d[len - 1 - j] *= j / fadeS;
+    return buf;
+  }
+  function playApplause(level) {
+    var c = audioCtx(); if (!c || vol <= 0) return;
+    if (!applauseBuf) applauseBuf = buildApplause(c);
+    var src = c.createBufferSource(); src.buffer = applauseBuf;
+    var f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1500; f.Q.value = 0.5;
+    var g = c.createGain(); g.gain.value = level || 0.55;
+    src.connect(f); f.connect(g); g.connect(sfxGain);
+    src.start();
+  }
+
   var api = {
     /* wheel passes a segment boundary → mechanical "tick" */
     tick: function () {
@@ -184,15 +245,19 @@ window.LuckyAudio = (function () {
       }
       sfxTone(1046.5, 0.9, 'triangle', 0.22, 0.52);
     },
-    /* winners carousel opens → celebration shimmer */
+    /* winners carousel opens → claps + celebration shimmer */
+    applause: function () { playApplause(); },
     celebrate: function () {
+      playApplause();
       var chord = [523.25, 659.25, 783.99, 1046.5, 1318.5];
       for (var i = 0; i < chord.length; i++) sfxTone(chord[i], 1.1, 'triangle', 0.12, 0.02 * i);
       for (var j = 0; j < 7; j++) sfxTone(1400 + Math.random() * 1800, 0.22, 'sine', 0.10, 0.1 + j * 0.085);
-      noiseBurst(0.8, 0.12, 1200, 6000, 0.05);
     },
-    /* carousel page change → soft flip */
-    page: function () { sfxTone(880, 0.06, 'triangle', 0.14); noiseBurst(0.05, 0.07, 2000, 1200); },
+    /* carousel page change → soft flip + light claps for the new winner(s) */
+    page: function () {
+      sfxTone(880, 0.06, 'triangle', 0.14);
+      playApplause(0.32);
+    },
     /* lower / restore music under the winners modal */
     duck: function (on) { ducked = !!on; fadeTo(500); }
   };
